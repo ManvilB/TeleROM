@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Tele-Rehab Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{
+      --bg: #0b1020;           --panel:#0f172a;        --card:#111a2f;
+      --muted:#9aa4b2;         --text:#ecf2ff;         --accent:#7aa2ff;
+      --border:#1c2440;        --ok:#10b981;           --warn:#f59e0b;
+      --danger:#ef4444;        --shadow: 0 8px 28px rgba(0,0,0,.35);
+    }
+    :root.light{
+      --bg: #f7f9fe;           --panel:#ffffff;        --card:#ffffff;
+      --muted:#667085;         --text:#0b1020;         --accent:#355cff;
+      --border:#e7ecf6;        --ok:#0fa57d;           --warn:#e49b07;
+      --danger:#e53e3e;        --shadow: 0 10px 30px rgba(17,24,39,.08);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; padding:24px;
+      background: radial-gradient(1200px 800px at 10% -10%, rgba(122,162,255,.18), transparent 50%),
+                  radial-gradient(1000px 600px at 90% 0%, rgba(16,185,129,.12), transparent 60%),
+                  var(--bg);
+      color:var(--text); font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    /* layout */
+    .shell{max-width:1200px;margin:0 auto}
+    .bar{
+      display:flex; align-items:center; justify-content:space-between;
+      background:var(--panel); border:1px solid var(--border);
+      border-radius:18px; padding:12px 16px; box-shadow:var(--shadow);
+    }
+    h1{font-size:20px; margin:0; letter-spacing:.2px}
+    .controls{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    button{
+      appearance:none; border-radius:12px; border:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0));
+      color:var(--text); padding:10px 14px; cursor:pointer; font-weight:600;
+      transition:transform .05s ease, box-shadow .2s ease; box-shadow:var(--shadow);
+    }
+    button:hover{ transform: translateY(-1px); }
+    button:active{ transform: translateY(0); }
+    .pill{border:1px solid var(--border); border-radius:999px; padding:6px 10px; font-weight:600}
+    .rec{ background:rgba(239,68,68,.14); border-color:rgba(239,68,68,.4); }
+    .ok{  background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.4); }
+    .warn{background:rgba(245,158,11,.14); border-color:rgba(245,158,11,.4); }
+
+    /* cards */
+    .row{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:14px}
+    .card{
+      background:var(--card); border:1px solid var(--border); border-radius:16px;
+      padding:14px; box-shadow:var(--shadow); min-height:86px;
+    }
+    .label{font-size:13px; color:var(--muted); display:flex; align-items:center; gap:8px}
+    .val{font-size:34px; font-weight:800; margin-top:6px}
+    .emoji{filter:saturate(0.9)}
+
+    /* charts */
+    .charts{display:grid; grid-template-columns:2fr 1fr; gap:12px; margin-top:12px}
+    .chart-wrap{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow:var(--shadow)}
+    .chart-title{font-size:12px; color:var(--muted); margin-bottom:6px}
+    canvas.main{height:250px !important}
+
+    /* runs */
+    h3{margin:18px 0 10px; letter-spacing:.2px}
+    .runs{display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr))}
+    .run{
+      background:var(--card); border:1px solid var(--border); border-radius:16px;
+      padding:12px; box-shadow:var(--shadow); position:relative; overflow:hidden;
+    }
+    .run h4{margin:0 0 6px; font-size:15px}
+    .meta{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px}
+    .meta div{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
+      border:1px solid var(--border); border-radius:12px; padding:8px}
+    .meta .k{font-size:12px; color:var(--muted)}
+    .meta .v{font-weight:800; margin-top:4px}
+    canvas.mini{width:100%; height:70px}
+
+    /* raw log */
+    .log{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow:var(--shadow)}
+    pre{white-space:pre-wrap; margin:0; color:var(--muted); font-size:12px}
+
+    /* footer controls */
+    .right{display:flex; align-items:center; gap:10px}
+    .toggle{display:flex; align-items:center; gap:8px}
+    .switch{
+      width:44px; height:24px; background:var(--border); border-radius:999px; position:relative; cursor:pointer;
+    }
+    .knob{position:absolute; top:3px; left:3px; width:18px; height:18px; background:var(--panel); border:1px solid var(--border); border-radius:999px; transition:left .18s}
+    .switch.on .knob{ left:23px; }
+  </style>
+</head>
+<body class="">
+<div class="shell">
+
+  <!-- Top bar -->
+  <div class="bar">
+    <h1>Tele-Rehab Dashboard</h1>
+    <div class="controls">
+      <button id="connectBtn">🔌 Connect Serial</button>
+      <button id="resetBtn">🧼 Reset Session</button>
+      <button id="exportBtn">⬇️ Export CSV</button>
+      <span id="status" class="pill warn">Not connected</span>
+      <span id="recBadge" class="pill rec" style="display:none;">REC</span>
+      <div class="toggle">
+        <span class="pill" style="border:none;padding:0 8px">🌙</span>
+        <div id="theme" class="switch"><div class="knob"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="row">
+    <div class="card">
+      <div class="label"><span class="emoji">🧭</span>Angle (°)</div>
+      <div id="angleNow" class="val">--</div>
+    </div>
+    <div class="card">
+      <div class="label"><span class="emoji">💨</span>Speed (°/s)</div>
+      <div id="speedNow" class="val">--</div>
+    </div>
+    <div class="card">
+      <div class="label"><span class="emoji">🔁</span>Reps</div>
+      <div id="repCount" class="val">0</div>
+    </div>
+    <div class="card">
+      <div class="label"><span class="emoji">📈</span>Max ROM (°)</div>
+      <div id="maxRom" class="val">0</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts">
+    <div class="chart-wrap">
+      <div class="chart-title">Angle (°)</div>
+      <canvas id="angleChart" class="main"></canvas>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Speed (°/s)</div>
+      <canvas id="speedChart" class="main"></canvas>
+    </div>
+  </div>
+
+  <!-- Run log -->
+  <h3>Runs</h3>
+  <div id="runs" class="runs"></div>
+
+  <!-- Raw events (optional) -->
+  <div class="log" style="margin-top:12px;">
+    <h3 style="margin:0 0 8px">Session Log</h3>
+    <pre id="log">(waiting for data)</pre>
+  </div>
+</div>
+
+<script>
+  /* ---------- THEME ---------- */
+  const root = document.documentElement;
+  const themeSwitch = document.getElementById('theme');
+  let light = false;
+  function applyTheme(){ root.classList.toggle('light', light); themeSwitch.classList.toggle('on', light); }
+  themeSwitch.addEventListener('click', ()=>{ light = !light; applyTheme(); });
+  applyTheme();
+  
+  /* ---------- Dashboard data (polling) ---------- */
+  const statusEl = document.getElementById('status');
+  const recBadge = document.getElementById('recBadge');
+  
+  const angleEl = document.getElementById('angleNow');
+  const speedEl = document.getElementById('speedNow');
+  const repEl   = document.getElementById('repCount');
+  const romEl   = document.getElementById('maxRom');
+  const runsEl  = document.getElementById('runs');
+  const logEl   = document.getElementById('log');
+  
+  let startTs = null, maxRom = 0;
+  let currentSession = null; // {id,start,end,reps,max,sumLift,nLift,samples:[]}
+  const sessions = [];
+  const csv = [["t_ms","angle_deg","speed_deg_s","event","session","rep","liftRange","avgLiftSpeed","peakLiftSpeed"]];
+  
+  const POLL_MS = 150; // ~6-7Hz UI refresh
+  let polling = false, pollTimer = null;
+  
+  /* ---------- Charts ---------- */
+  function chartOpts(yTitle, suggestedMin, suggestedMax){
+    return {
+      type:'line',
+      data:{ datasets:[{
+        label:yTitle, data:[], parsing:false, tension:.35, pointRadius:0, borderWidth:2,
+        fill:true, backgroundColor: getComputedStyle(root).getPropertyValue('--accent') + '22'
+      }]},
+      options:{
+        animation:false, responsive:true,
+        scales:{
+          x:{ type:'linear', grid:{color:getComputedStyle(root).getPropertyValue('--border')}, ticks:{color:getComputedStyle(root).getPropertyValue('--muted')}},
+          y:{ title:{display:true,text:yTitle}, suggestedMin, suggestedMax,
+              grid:{color:getComputedStyle(root).getPropertyValue('--border')}, ticks:{color:getComputedStyle(root).getPropertyValue('--muted')} }
+        },
+        plugins:{ legend:{display:false} }
+      }
+    };
+  }
+  const angleCtx = document.getElementById('angleChart').getContext('2d');
+  const speedCtx = document.getElementById('speedChart').getContext('2d');
+  const angleChart = new Chart(angleCtx, chartOpts('Angle (°)', 0, 130));
+  const speedChart = new Chart(speedCtx, chartOpts('Speed (°/s)', undefined, undefined));
+  const anglePts = [], speedPts = []; const MAX_SEC = 14;
+  function pushPt(arr, t, y){ arr.push({x:t, y}); const c=t-MAX_SEC; while(arr.length && arr[0].x<c) arr.shift(); }
+  function refreshCharts(){ angleChart.data.datasets[0].data = anglePts; speedChart.data.datasets[0].data = speedPts; angleChart.update('none'); speedChart.update('none'); }
+  
+  /* ---------- UI helpers ---------- */
+  function addLog(line){ if(logEl.textContent==="(waiting for data)") logEl.textContent=""; logEl.textContent += line+"\n"; logEl.scrollTop = logEl.scrollHeight; }
+  function resetLive(){
+    startTs=null; maxRom=0; anglePts.length=0; speedPts.length=0;
+    angleChart.data.datasets[0].data = anglePts; speedChart.data.datasets[0].data = speedPts;
+    angleChart.update(); speedChart.update();
+    angleEl.textContent='--'; speedEl.textContent='--'; repEl.textContent='0'; romEl.textContent='0';
+    logEl.textContent='(waiting for data)'; csv.length=1;
+  }
+  
+  /* ---------- Run cards ---------- */
+  function renderRunCard(s){
+    const card=document.createElement('div'); card.className='run';
+    card.innerHTML=`
+      <h4>Run #${s.id} <span style="color:var(--muted); font-weight:600">• ${new Date(s.start).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})} – ${new Date(s.end).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span></h4>
+      <div class="meta">
+        <div><div class="k">Reps</div><div class="v">${s.reps}</div></div>
+        <div><div class="k">Avg lift speed</div><div class="v">${(s.avgLift||0).toFixed(1)} °/s</div></div>
+        <div><div class="k">Max angle</div><div class="v">${(s.max||0).toFixed(1)} °</div></div>
+        <div><div class="k">Duration</div><div class="v">${((s.end-s.start)/1000).toFixed(1)} s</div></div>
+      </div>
+      <canvas class="mini" width="260" height="70"></canvas>`;
+    runsEl.prepend(card);
+  
+    const ctx=card.querySelector('canvas').getContext('2d');
+    const w=260,h=70; ctx.clearRect(0,0,w,h);
+    if(!s.samples.length) return;
+    const xs=s.samples[0].t, xe=s.samples.at(-1).t, xr=Math.max(1, xe-xs);
+    let ymin=1e9,ymax=-1e9; s.samples.forEach(p=>{ymin=Math.min(ymin,p.angle);ymax=Math.max(ymax,p.angle);});
+    if (ymax-ymin<10){ymin-=5;ymax+=5;}
+    ctx.beginPath();
+    s.samples.forEach((p,i)=>{ const x=(p.t-xs)/xr*(w-2)+1; const y=h-((p.angle-ymin)/(ymax-ymin))*(h-2)-1; if(!i)ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.strokeStyle = getComputedStyle(root).getPropertyValue('--accent'); ctx.lineWidth=2; ctx.stroke();
+  }
+  
+  /* ---------- Session helpers (optional UI niceties) ---------- */
+  function onSessionStart(id,t){
+    recBadge.style.display='inline-block'; recBadge.textContent='LIVE';
+    recBadge.className='pill rec';
+    currentSession={id, start:t, reps:0, max:0, sumLift:0, nLift:0, samples:[]};
+    statusEl.textContent='Connected'; statusEl.className='pill ok';
+  }
+  function onSessionStop(id,t,dur,reps,maxAngle){
+    if(!currentSession) return;
+    currentSession.end=t;
+    currentSession.reps=reps ?? currentSession.reps;
+    currentSession.max=Math.max(currentSession.max, maxAngle ?? 0);
+    currentSession.avgLift=currentSession.nLift? (currentSession.sumLift/currentSession.nLift):0;
+    sessions.push(currentSession); renderRunCard(currentSession);
+    currentSession=null; recBadge.style.display='none';
+  }
+  
+  /* ---------- Sample update + simple rep logic ---------- */
+  function updateSample(tMs, angle, speed){
+    // If speed not provided, compute from last sample
+    if (speed == null || isNaN(speed)) {
+      const lastA = updateSample._lastAngle;
+      const lastT = updateSample._lastTs;
+      speed = 0;
+      if (lastA != null && lastT != null) {
+        const dt = (tMs - lastT) / 1000;
+        if (dt > 0) speed = (angle - lastA) / dt;
+      }
+      updateSample._lastAngle = angle;
+      updateSample._lastTs = tMs;
+    }
+  
+    if(startTs===null) startTs=tMs;
+    const t=(tMs-startTs)/1000;
+  
+    angleEl.textContent=angle.toFixed(1);
+    speedEl.textContent=(Math.abs(speed)<0.05?0:speed).toFixed(0);
+    if(angle>maxRom){maxRom=angle; romEl.textContent=maxRom.toFixed(1);}
+  
+    pushPt(anglePts, t, angle);
+    pushPt(speedPts, t, speed);
+    refreshCharts();
+  
+    // naive rep count: threshold with hysteresis
+    const THRESH = 60, HYST = 10;
+    updateSample._state = updateSample._state || { rising:false, reps:0, maxAngle:0, sumLift:0, nLift:0 };
+    const st = updateSample._state;
+    if (!st.rising && angle > THRESH + HYST) st.rising = true;
+    if (st.rising && angle < THRESH - HYST) {
+      st.rising = false;
+      st.reps++;
+      repEl.textContent = String(st.reps);
+      csv.push([tMs,"","", "rep", currentSession?.id ?? "", st.reps, "", "", ""]);
+      addLog(`rep ${st.reps}`);
+      if (currentSession){ currentSession.reps=st.reps; currentSession.sumLift+=Math.abs(speed); currentSession.nLift++; }
+    }
+  
+    csv.push([tMs, angle.toFixed(3), speed.toFixed(3), "", currentSession?.id ?? "", "", "", "", ""]);
+    if(currentSession){ currentSession.samples.push({t:tMs, angle}); if(angle>(currentSession.max||0)) currentSession.max=angle; }
+  }
+  
+  /* ---------- Polling from Flask ---------- */
+  async function pollOnce(){
+    const res = await fetch("/recent?n=1", { cache: "no-store" });
+    const arr = await res.json();
+    if (!Array.isArray(arr) || !arr.length) return;
+  
+    const s = arr[arr.length-1];
+    const ang = Number(s.angle ?? s.a);
+    if (Number.isNaN(ang)) return;
+  
+    const ts = Date.parse(s.server_ts || s._received_at || Date());
+    const tMs = Number.isFinite(ts) ? ts : Date.now();
+    updateSample(tMs, ang, undefined);
+  }
+  
+  function startPolling(){
+    if (polling) return;
+    polling = true;
+    statusEl.textContent='Connected'; statusEl.className='pill ok';
+    recBadge.style.display='inline-block'; recBadge.textContent='LIVE';
+    onSessionStart((sessions.length+1), Date.now());
+  
+    const loop = async ()=>{
+      if (!polling) return;
+      try { await pollOnce(); } catch(_){}
+      pollTimer = setTimeout(loop, POLL_MS);
+    };
+    loop();
+  }
+  
+  function stopPolling(){
+    polling = false;
+    if (pollTimer) clearTimeout(pollTimer);
+    recBadge.style.display='none';
+    statusEl.textContent='Not connected'; statusEl.className='pill warn';
+    onSessionStop((sessions.length+1), Date.now());
+  }
+  
+  /* ---------- Buttons ---------- */
+  const connectBtn = document.getElementById('connectBtn');
+  connectBtn.textContent = '▶ Start Live'; // change label from "Connect Serial"
+  connectBtn.addEventListener('click', ()=>{
+    if (!polling) { startPolling(); connectBtn.textContent = '⏹ Stop Live'; }
+    else { stopPolling(); connectBtn.textContent = '▶ Start Live'; }
+  });
+  
+  document.getElementById('resetBtn').addEventListener('click', resetLive);
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const lines = csv.map(r=>r.map(x=>x===undefined?"":x).join(',')).join('\n');
+    const blob = new Blob([lines], {type:'text/csv'});
+    const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:'session.csv'});
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+</script>  
+</body>
+</html>

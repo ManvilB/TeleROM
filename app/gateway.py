@@ -15,7 +15,8 @@ load_dotenv()  # this loads variables from .env into os.environ
 # ---------- CONFIG ----------
 BATCH_SIZE = 50           # number of rows to insert per batch
 FLUSH_INTERVAL = 1.0      # seconds (flush every second at most)
-DASHBOARD_URL = "http://127.0.0.1:5000/ingest"  # optional local dashboard
+# near top, replace the DASHBOARD_URL line with:
+DASHBOARD_URL_DEFAULT = os.getenv("DASHBOARD_URL", "http://127.0.0.1:5050/ingest")
 # ----------------------------
 
 log = logging.getLogger("gateway")
@@ -80,7 +81,7 @@ def parse_line(line):
     except Exception:
         return None
 
-def run_serial_gateway(port, baud, session_id, device_id, dry_run=False, dashboard=False):
+def run_serial_gateway(port, baud, session_id, device_id, dry_run=False, dashboard=False, dashboard_url=DASHBOARD_URL_DEFAULT):
     # Connect to Snowflake if not dry_run
     sf_conn = None
     sink = None
@@ -124,32 +125,59 @@ def run_serial_gateway(port, baud, session_id, device_id, dry_run=False, dashboa
                 log.debug("Non-JSON line: %s", line)
                 continue
 
-            # enrich
             server_ts = datetime.utcnow()
-            device_ts_ms = obj.get('t')    # may be millis since device boot
-            angle = obj.get('a') or None
-            raw_adc = obj.get('raw') or None
 
-            # row for Snowflake: convert server_ts to python datetime (connector handles it)
-            raw_json = json.dumps(obj)     # saved in VARIANT column
+            # ---- Forward event frames to the dashboard, but do NOT insert into Snowflake ----
+            # (Needed so the UI shows REC badge, rep logs, run cards, etc.)
+            if 'event' in obj:
+                if dashboard:
+                    out = {
+                        **obj,  # keep original keys: event, t, sessionId, etc.
+                        "session_id": session_id,
+                        "device_id": device_id,
+                        "server_ts": server_ts.isoformat() + "Z",
+                    }
+                    try:
+                        requests.post(dashboard_url, json=out, timeout=0.5)
+                    except Exception:
+                        pass
+                continue  # skip Snowflake insert for event frames
+
+            # ---- Normalize sample fields for Snowflake insert ----
+            device_ts_ms = obj.get('t') or obj.get('ts') or obj.get('time_ms')
+
+            # Accept either 'angle' or legacy 'a'
+            angle = obj.get('angle', obj.get('a'))
+            # Accept common raw/ADC keys
+            raw_adc = obj.get('raw') or obj.get('adc') or obj.get('pot')
+            # Keep speed if present (for dashboard)
+            speed = obj.get('speed')
+
+            # If there is no angle, skip this line as a malformed sample
+            if angle is None:
+                continue
+
+            # Insert into Snowflake (raw VARIANT keeps the full original JSON, including speed)
+            raw_json = json.dumps(obj)
             row = (session_id, device_id, server_ts, device_ts_ms, angle, raw_adc, seq, raw_json)
             buffer.append(row)
             seq += 1
 
-            # POST to local dashboard for live view (best-effort, non-blocking)
+            # ---- Post to dashboard: include original sample keys (t, angle, speed) ----
             if dashboard:
+                out = {
+                    **obj,  # preserves "t", "angle", "speed"
+                    "session_id": session_id,
+                    "device_id": device_id,
+                    "server_ts": server_ts.isoformat() + "Z",
+                    "seq": seq,
+                }
                 try:
-                    requests.post(DASHBOARD_URL, json={
-                        "session_id": session_id,
-                        "device_id": device_id,
-                        "server_ts": server_ts.isoformat() + "Z",
-                        "device_ts_ms": device_ts_ms,
-                        "angle": angle,
-                        "raw_adc": raw_adc,
-                        "seq": seq
-                    }, timeout=0.5)
+                    requests.post(dashboard_url, json=out, timeout=0.5)
                 except Exception:
                     pass
+
+
 
             # flush if buffer big or time elapsed
             if len(buffer) >= BATCH_SIZE or (time.time() - last_flush) >= FLUSH_INTERVAL:
@@ -188,5 +216,15 @@ if __name__ == "__main__":
     p.add_argument("--device", default="brace01")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--dashboard", action="store_true", help="POST samples to local dashboard")
+    p.add_argument("--dashboard-url", default=None, help="Override dashboard ingest URL (e.g., http://127.0.0.1:5050/ingest)")
     args = p.parse_args()
-    run_serial_gateway(args.port, args.baud, args.session, args.device, dry_run=args.dry_run, dashboard=args.dashboard)
+    dash_url = args.dashboard_url or DASHBOARD_URL_DEFAULT
+    run_serial_gateway(
+        args.port,
+        args.baud,
+        args.session,
+        args.device,
+        dry_run=args.dry_run,
+        dashboard=args.dashboard,
+        dashboard_url=dash_url
+    )
